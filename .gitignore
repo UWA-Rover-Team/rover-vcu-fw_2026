@@ -16,3 +16,4 @@ __pycache__/
 /doc/_build*
 
 .cache/
+.DS_Store
