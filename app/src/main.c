@@ -1,8 +1,8 @@
-#include "udp_transport.h"
-#include "fsm_thread.h"
 #include "dhcp_req.h"
-#include <zephyr/kernel.h>
+#include "fsm_thread.h"
+#include "udp_transport.h"
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/kernel.h>
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(main);
@@ -33,6 +33,8 @@ static void on_network_ready(struct net_if *iface) {
 }
 
 int main(void) {
+
+  LOG_INF("Starting Main Program...");
 
   gpio_pin_configure_dt(&led0, GPIO_OUTPUT_INACTIVE);
   gpio_pin_configure_dt(&led1, GPIO_OUTPUT_ACTIVE);
