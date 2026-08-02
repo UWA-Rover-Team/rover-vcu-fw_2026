@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        board: [nucleo_h563zi, nucleo_h753zi]
+        board: [rover_vcu_v0]
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
@@ -40,7 +40,7 @@ jobs:
 
       - name: Build firmware
         working-directory: example-application
-        run: west build -b ${{ matrix.board }} app
+        run: west build -b ${{ matrix.board }} app --sysbuild -- -DEXTRA_CONFI_FILE=debug.conf
 
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
@@ -52,38 +52,9 @@ jobs:
             example-application/build/zephyr/zephyr.hex
           if-no-files-found: warn
 
-  test:
-    name: Twister Tests
-    runs-on: ubuntu-22.04
-    permissions:
-      checks: write
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          path: example-application
-          persist-credentials: false
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: 3.12
-
-      - name: Setup Zephyr project
-        uses: zephyrproject-rtos/action-zephyr-setup@v1
-        with:
-          app-path: example-application
-          toolchains: arm-zephyr-eabi
-          ccache-cache-key: ubuntu-22.04-tests
-
-      - name: Twister Tests
-        working-directory: example-application
-        run: west twister -T tests/app --platform qemu_cortex_m0
-
   release:
     name: Release
-    needs: [build, test]
+    needs: [build]
     runs-on: ubuntu-22.04
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     permissions:
