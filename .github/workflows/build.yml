@@ -47,9 +47,7 @@ jobs:
         with:
           name: firmware-${{ matrix.board }}
           path: |
-            example-application/build/zephyr/zephyr.elf
-            example-application/build/zephyr/zephyr.bin
-            example-application/build/zephyr/zephyr.hex
+            example-application/build/zephyr/zephyr.signed.bin
           if-no-files-found: warn
 
   release:
