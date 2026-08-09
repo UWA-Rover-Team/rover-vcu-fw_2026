@@ -1,6 +1,5 @@
 #include "dhcp_req.h"
 #include "udp_transport.h"
-#include <zephyr/drivers/can.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/kernel.h>
 

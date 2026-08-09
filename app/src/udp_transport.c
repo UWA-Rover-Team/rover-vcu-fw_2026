@@ -159,10 +159,21 @@ void udp_rx_thread(void *p1, void *p2, void *p3) {
       continue;
     }
 
-    ret = can_send(can_dev_0, &frame, K_MSEC(100), NULL, NULL);
+    // const struct device *can_dev = phy_channel == 0 ? can_dev_0 : can_dev_1;
+    const struct device *can_dev = can_dev_0;
+
+    ret = can_send(can_dev, &frame, K_MSEC(100), NULL, NULL);
 
     if (ret < 0) {
+      enum can_state state;
+      struct can_bus_err_cnt err_cnt;
+
       LOG_ERR("Failed to can_send on ch: %d (%d)", phy_channel, ret);
+
+      if (can_get_state(can_dev, &state, &err_cnt) == 0) {
+        LOG_ERR("can state: %d, tx_err_cnt: %d, rx_err_cnt: %d", state,
+                err_cnt.tx_err_cnt, err_cnt.rx_err_cnt);
+      }
     }
 
     LOG_HEXDUMP_INF(rx_buf, pkt_size, "RX buffer");

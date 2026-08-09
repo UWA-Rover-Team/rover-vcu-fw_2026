@@ -9,7 +9,7 @@
 LOG_MODULE_REGISTER(dhcp_req);
 
 #define DHCP_TIMEOUT_MS   10000
-#define STATIC_IP_ADDR    "192.168.8.100"
+#define STATIC_IP_ADDR    "192.168.8.158"
 #define STATIC_IP_NETMASK "255.255.255.0"
 
 static struct net_mgmt_event_callback dhcp_cb;
@@ -25,7 +25,9 @@ static void dhcp_fallback_handler(struct k_work *work) {
   LOG_WRN("DHCP timeout, falling back to static IP: %s", STATIC_IP_ADDR);
 
   struct net_if *iface = net_if_get_default();
+  #if !defined(CONFIG_STATIC_VCU_DEV)
   net_dhcpv4_stop(iface);
+  #endif
 
   struct in_addr addr, netmask;
   net_addr_pton(AF_INET, STATIC_IP_ADDR, &addr);
@@ -59,14 +61,19 @@ static void dhcp_handler(struct net_mgmt_event_callback *cb,
 
 void dhcp_req_start(dhcp_req_ready_cb_t on_ready) {
   ready_cb = on_ready;
-
   net_mgmt_init_event_callback(&dhcp_cb, dhcp_handler,
                                NET_EVENT_IPV4_DHCP_BOUND);
   net_mgmt_add_event_callback(&dhcp_cb);
+  #if defined(CONFIG_STATIC_VCU_DEV)
+  LOG_INF("Static IP configuration enabled, skipping DHCP");
+  k_work_init_delayable(&dhcp_timeout_work, dhcp_fallback_handler);
+  k_work_schedule(&dhcp_timeout_work, K_MSEC(0));
+  #else
 
   struct net_if *iface = net_if_get_default();
   net_dhcpv4_start(iface);
 
   k_work_init_delayable(&dhcp_timeout_work, dhcp_fallback_handler);
   k_work_schedule(&dhcp_timeout_work, K_MSEC(DHCP_TIMEOUT_MS));
+  #endif
 }
