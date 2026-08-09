@@ -12,22 +12,7 @@ project(app LANGUAGES C)
 target_sources(app PRIVATE 
     src/main.c
     src/dhcp_req.c
-    src/fsm.c
-    src/fsm_thread.c
     src/udp_transport.c
-    src/ports/ports.c
-    src/state_handlers/booting_handler.c
-    src/state_handlers/stopped_handler.c
-    src/state_handlers/idle_handler.c
-    src/state_handlers/execute_handler.c
-    src/state_handlers/holding_handler.c
-    src/state_handlers/held_handler.c
-    src/state_handlers/stopping_handler.c
-    src/state_handlers/suspending_handler.c
-    src/state_handlers/suspended_handler.c
-    src/state_handlers/aborting_handler.c
-    src/state_handlers/aborted_handler.c
-    src/state_handlers/clearing_handler.c
 )
 
 # The code below locates the git index file for this repository and adds it as a dependency for

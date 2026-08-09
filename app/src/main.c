@@ -1,5 +1,4 @@
 #include "dhcp_req.h"
-#include "fsm_thread.h"
 #include "udp_transport.h"
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/kernel.h>
@@ -29,7 +28,6 @@ struct UDPTransport udp_transport;
 
 static void on_network_ready(struct net_if *iface) {
   udp_transport_init(&udp_transport);
-  fsm_thread_start(&udp_transport);
 }
 
 int main(void) {
