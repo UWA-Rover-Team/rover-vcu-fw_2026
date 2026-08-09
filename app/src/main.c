@@ -1,5 +1,6 @@
 #include "dhcp_req.h"
 #include "udp_transport.h"
+#include <zephyr/drivers/can.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/kernel.h>
 
@@ -32,7 +33,7 @@ static void on_network_ready(struct net_if *iface) {
 
 int main(void) {
 
-  LOG_INF("Starting Main Program...");
+  LOG_INF("Starting UDP to CAN Bus Gateway");
 
   gpio_pin_configure_dt(&led0, GPIO_OUTPUT_INACTIVE);
   gpio_pin_configure_dt(&led1, GPIO_OUTPUT_ACTIVE);

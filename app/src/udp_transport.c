@@ -1,7 +1,10 @@
 #include "udp_transport.h"
+#include "syscalls/device.h"
 #include <zephyr/logging/log.h>
-
 LOG_MODULE_REGISTER(udp_transport);
+
+const struct device *can_dev_1 = DEVICE_DT_GET(DT_NODELABEL(fdcan1));
+const struct device *can_dev_0 = DEVICE_DT_GET(DT_NODELABEL(fdcan2));
 
 K_THREAD_STACK_DEFINE(udp_rx_stack, UDP_THREAD_STACK_SIZE);
 static struct k_thread udp_rx_thread_data;
@@ -35,6 +38,33 @@ int udp_transport_init(struct UDPTransport *udp_transport) {
 
   LOG_INF("Socket seems to be ready...");
 
+  // CAN BUS STARTUPS
+  if (!device_is_ready(can_dev_0)) {
+    LOG_ERR("Failed to start Telemetry CAN Bus");
+    return 1;
+  }
+
+  if (!device_is_ready(can_dev_1)) {
+    LOG_ERR("Failed to start Powertrain CAN Bus");
+    return 1;
+  }
+
+  can_set_mode(can_dev_0, CAN_MODE_NORMAL);
+
+  ret = can_start(can_dev_0);
+  if (ret < 0) {
+    LOG_ERR("Failed to start Telemetry CAN Bus");
+    return -1;
+  }
+
+  can_set_mode(can_dev_1, CAN_MODE_NORMAL);
+  ret = can_start(can_dev_1);
+  if (ret < 0) {
+    LOG_ERR("Failed to start Power Train CAN Bus");
+    return -1;
+  }
+
+  // start the udp threads
   k_msgq_init(&udp_transport->rx_msgq, (char *)udp_transport->rx_msgq_buffer,
               sizeof(struct UDPReceivedPacket), 100);
 
@@ -51,119 +81,90 @@ int udp_transport_init(struct UDPTransport *udp_transport) {
   return 0;
 }
 
-struct UDPReceivedPacket
-udp_transport_rx_parse(struct UDPTransport *udp_transport, uint8_t *buf,
-                       ssize_t len) {
-  struct UDPReceivedPacket pkt = {0};
-  struct UDPReceivedPacket empty_pkt = {0};
+int udp_parse_frame(uint8_t *rx_buf, int len, struct can_frame *can_frame) {
 
-  // confirm pkt is sized right...
-  ssize_t min_pkt_len = sizeof(struct UDPPacketHeader);
-  ssize_t max_pkt_len = min_pkt_len + sizeof(struct UDPReceivedPacket);
-
-  if (len > max_pkt_len) {
-    LOG_WRN("Received Packet too long (%zd bytes). Dropping...", len);
-    return pkt;
+  if (len < 0) {
+    LOG_ERR("There must be bytes in the UDP Frame...");
+    return -1;
   }
 
-  if (len < min_pkt_len) {
-    LOG_WRN("Received Packet too small (%zd bytes). Dropping...", len);
-    return pkt;
+  /*
+   * BYTE 0: Protocol Version
+   * BYTE 1: Flags
+   * BYTE 2-7: TODO: im sure theres some other tiestamp stuff we want later
+   * BYTE 8-12: CAN ID
+   * BYTE 13: data length
+   * BYTE 14: flags; 0 for classic; fd uses it tho
+   * BYTE 15-16: reserved; TODO: could use as timestamp later
+   * BYTE 17-24: 8byte data output; the meat of things...
+   * */
+
+  // TODO: extend to FD oneday; for now, we just care about classic...
+  uint8_t protocol_ver = rx_buf[0];
+  uint8_t phy_channel = rx_buf[2];
+  uint16_t can_id = (rx_buf[8] << 8 | rx_buf[9]) & 0b11111111111;
+  uint8_t dlc = rx_buf[13];
+  if (dlc > 8) {
+    dlc = 8;
+    LOG_WRN("Cannot exceed 8 DLC - only sending 8 bytes and setting DLC to 8");
+  }
+  uint8_t data[8] = {0};
+  memcpy(&data, &rx_buf[9], dlc > 8 ? 8 : dlc);
+
+  can_frame->dlc = dlc;
+  can_frame->id = can_id;
+  can_frame->flags = 0;
+  memcpy(can_frame->data, data, 8);
+
+  LOG_INF("Protocol Version %x", protocol_ver);
+  LOG_INF("Physical CAN Channel %x", phy_channel);
+  LOG_INF("Target CANID %3x", can_id);
+  LOG_INF("Target DLC %x", dlc);
+  LOG_HEXDUMP_INF(data, 8, "CAN Data");
+
+  // TODO: fix this; its a nice work around for now; but want something
+  // a bit easier to audit in the future
+  if (phy_channel != 0) {
+    // TODO: also dont like the idea of not 0 => 1
+    return 1;
+  } else {
+    return 0;
   }
 
-  // get pkt type;
-  struct UDPPacketHeader header;
-  memcpy(&header, buf, sizeof(header));
-
-  // start parsing packet
-  uint8_t *payload = buf + sizeof(header);
-  pkt.type = (enum PacketType)header.type;
-  ssize_t payload_len = len - sizeof(header);
-
-  switch (pkt.type) {
-
-  case PKT_RX_DRIVE_VEL_CMD:
-    if (payload_len < (ssize_t)sizeof(pkt.drive_vel_cmd))
-      goto too_short;
-    memcpy(&pkt.drive_vel_cmd, payload, sizeof(pkt.drive_vel_cmd));
-    break;
-
-  case PKT_RX_DRIVE_POS_CMD:
-    if (payload_len < (ssize_t)sizeof(pkt.drive_pos_cmd))
-      goto too_short;
-    memcpy(&pkt.drive_pos_cmd, payload, sizeof(pkt.drive_pos_cmd));
-    break;
-
-  case PKT_RX_ARM_CMD:
-    if (payload_len < (ssize_t)sizeof(pkt.arm_cmd))
-      goto too_short;
-    memcpy(&pkt.arm_cmd, payload, sizeof(pkt.arm_cmd));
-    break;
-
-  case PKT_RX_SW_SAFETY_CMD:
-    if (payload_len < (ssize_t)sizeof(pkt.sw_safety_cmd))
-      goto too_short;
-    memcpy(&pkt.sw_safety_cmd, payload, sizeof(pkt.sw_safety_cmd));
-    break;
-
-  default:
-    LOG_WRN("Unknown Packet Type 0x%02x, Dropping...", pkt.type);
-  }
-
-  return pkt;
-
-too_short:
-  LOG_WRN("Payload too short for type 0x%02x (%zd bytes), dropping...",
-          pkt.type, payload_len);
-  return empty_pkt;
+  return 0;
 }
 
 void udp_rx_thread(void *p1, void *p2, void *p3) {
+  int ret = 0;
   ARG_UNUSED(p2);
   ARG_UNUSED(p3);
 
+  // p1 is a udp_transport type; we get sock from there
   struct UDPTransport *udp_transport = (struct UDPTransport *)p1;
-  // int sock = udp_transport->udp_sock;
-
-  uint8_t rx_buf[UDP_PACKET_SIZE];
 
   LOG_INF("UDP RX Thread started, listenign on port %d", UDP_PORT);
 
   for (;;) {
+    uint8_t rx_buf[UDP_PACKET_SIZE] = {0};
+    struct can_frame frame = {0};
+    int pkt_size =
+        zsock_recv(udp_transport->udp_sock, rx_buf, UDP_PACKET_SIZE, 0);
+    if (pkt_size < 0) {
+      LOG_ERR("Packet was a dud...");
+    }
 
-    // wait for new msg
-    struct sockaddr_in src_addr;
-    socklen_t addr_len = sizeof(src_addr);
-
-    ssize_t pkt_len =
-        zsock_recvfrom(udp_transport->udp_sock, rx_buf, sizeof(rx_buf) - 1, 0,
-                       (struct sockaddr *)&src_addr, &addr_len);
-
-    if (pkt_len < 0) {
-      LOG_ERR("recvfrom() failed %d", errno);
-      k_msleep(100); // backoff for a bit;
+    int phy_channel = udp_parse_frame(rx_buf, pkt_size, &frame);
+    if (phy_channel < 0) {
+      LOG_ERR("Failed to parse frame...");
       continue;
     }
 
-    int null_loc = pkt_len > UDP_PACKET_SIZE
-                       ? UDP_PACKET_SIZE
-                       : pkt_len; // truncate if > UDP_PACKET_SIZE
+    ret = can_send(can_dev_0, &frame, K_MSEC(100), NULL, NULL);
 
-    rx_buf[null_loc - 1] = '\0'; // null char termiate before printout!!! (heh)
-
-    uint8_t rx_ip_buf[NET_IPV4_ADDR_LEN];
-    net_addr_ntop(AF_INET, &src_addr.sin_addr, rx_ip_buf, NET_IPV4_ADDR_LEN);
-
-    LOG_DBG("Received %zd bytes from %s", pkt_len, rx_ip_buf);
-    LOG_DBG("TEXT: %s", rx_buf);
-
-    // when new pkt rx process it; then enqueue if valid
-    struct UDPReceivedPacket rxd_pkt =
-        udp_transport_rx_parse(udp_transport, rx_buf, pkt_len);
-
-    int ret = k_msgq_put(&udp_transport->rx_msgq, &rxd_pkt, K_NO_WAIT);
     if (ret < 0) {
-      LOG_WRN("rx_msgq full, dropping packet %d", rxd_pkt.type);
+      LOG_ERR("Failed to can_send on ch: %d (%d)", phy_channel, ret);
     }
+
+    LOG_HEXDUMP_INF(rx_buf, pkt_size, "RX buffer");
   }
 }
