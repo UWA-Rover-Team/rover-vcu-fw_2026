@@ -38,6 +38,12 @@ jobs:
           toolchains: arm-zephyr-eabi
           ccache-cache-key: ${{ matrix.board }}
 
+      - name: Generate MCUBoot Signing Key
+        working-directory: example-application
+        run: |
+          echo "${{ secrets.MCUBOOT_SIGNING_KEY }}" | base64 -d > secret.pem
+          chmod 600 secret.pem
+
       - name: Build firmware
         working-directory: example-application
         run: west build -b ${{ matrix.board }} app --sysbuild -- -DEXTRA_CONFI_FILE=debug.conf
