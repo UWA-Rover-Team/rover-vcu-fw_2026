@@ -41,8 +41,10 @@ jobs:
       - name: Generate MCUBoot Signing Key
         working-directory: example-application
         run: |
-          echo "${{ secrets.MCUBOOT_SIGNING_KEY }}" | base64 -d > secret.pem
+          set -euo pipefail
+          echo "${{ secrets.MCUBOOT_SIGNING_KEY }}" > secret.pem
           chmod 600 secret.pem
+          openssl ec -in secret.pem -noout -check
 
       - name: Build firmware
         working-directory: example-application
@@ -53,7 +55,7 @@ jobs:
         with:
           name: firmware-${{ matrix.board }}
           path: |
-            example-application/build/zephyr/zephyr.signed.bin
+            example-application/build/app/zephyr/zephyr.signed.bin
           if-no-files-found: warn
 
   release:
