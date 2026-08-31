@@ -3,8 +3,7 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(udp_transport);
 
-const struct device *can_dev_1 = DEVICE_DT_GET(DT_NODELABEL(fdcan1));
-const struct device *can_dev_0 = DEVICE_DT_GET(DT_NODELABEL(fdcan2));
+const struct device *can_dev_0 = DEVICE_DT_GET(DT_NODELABEL(fdcan1));
 
 K_THREAD_STACK_DEFINE(udp_rx_stack, UDP_THREAD_STACK_SIZE);
 static struct k_thread udp_rx_thread_data;
@@ -44,23 +43,23 @@ int udp_transport_init(struct UDPTransport *udp_transport) {
     return 1;
   }
 
-  if (!device_is_ready(can_dev_1)) {
-    LOG_ERR("Failed to start Powertrain CAN Bus");
-    return 1;
+  can_set_mode(can_dev_0, CAN_MODE_NORMAL);
+
+  struct can_timing timing;
+
+  ret = can_calc_timing(can_dev_0, &timing, 250000, 875);
+  if (ret > 0) {
+    LOG_INF("Sample-Point error: %d", ret);
   }
 
-  can_set_mode(can_dev_0, CAN_MODE_NORMAL);
+  ret = can_set_timing(can_dev_0, &timing);
+  if (ret != 0) {
+    LOG_ERR("Failed to set timing");
+  }
 
   ret = can_start(can_dev_0);
   if (ret < 0) {
     LOG_ERR("Failed to start Telemetry CAN Bus");
-    return -1;
-  }
-
-  can_set_mode(can_dev_1, CAN_MODE_NORMAL);
-  ret = can_start(can_dev_1);
-  if (ret < 0) {
-    LOG_ERR("Failed to start Power Train CAN Bus");
     return -1;
   }
 
@@ -159,23 +158,18 @@ void udp_rx_thread(void *p1, void *p2, void *p3) {
       continue;
     }
 
-    // const struct device *can_dev = phy_channel == 0 ? can_dev_0 : can_dev_1;
-    const struct device *can_dev = can_dev_0;
+    LOG_HEXDUMP_INF(rx_buf, pkt_size, "RX buffer");
 
-    ret = can_send(can_dev, &frame, K_MSEC(100), NULL, NULL);
+    ret = can_send(can_dev_0, &frame, K_MSEC(100), NULL, NULL);
 
     if (ret < 0) {
       enum can_state state;
       struct can_bus_err_cnt err_cnt;
 
-      LOG_ERR("Failed to can_send on ch: %d (%d)", phy_channel, ret);
-
-      if (can_get_state(can_dev, &state, &err_cnt) == 0) {
+      if (can_get_state(can_dev_0, &state, &err_cnt) == 0) {
         LOG_ERR("can state: %d, tx_err_cnt: %d, rx_err_cnt: %d", state,
                 err_cnt.tx_err_cnt, err_cnt.rx_err_cnt);
       }
     }
-
-    LOG_HEXDUMP_INF(rx_buf, pkt_size, "RX buffer");
   }
 }
