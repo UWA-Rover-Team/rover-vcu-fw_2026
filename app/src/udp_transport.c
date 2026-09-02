@@ -8,6 +8,9 @@ const struct device *can_dev_0 = DEVICE_DT_GET(DT_NODELABEL(fdcan1));
 K_THREAD_STACK_DEFINE(udp_rx_stack, UDP_THREAD_STACK_SIZE);
 static struct k_thread udp_rx_thread_data;
 
+K_THREAD_STACK_DEFINE(can_sniff_stack, CAN_SNIFF_STACK_SIZE);
+static struct k_thread can_sniff_thread_data;
+
 int udp_transport_init(struct UDPTransport *udp_transport) {
 
   LOG_INF("Initializing UDP Transport Layer");
@@ -36,6 +39,14 @@ int udp_transport_init(struct UDPTransport *udp_transport) {
   }
 
   LOG_INF("Socket seems to be ready...");
+
+  int broadcast_enable = 1;
+  ret = zsock_setsockopt(udp_transport->udp_sock, SOL_SOCKET, SO_BROADCAST,
+                         &broadcast_enable, sizeof(broadcast_enable));
+  if (ret < 0) {
+    LOG_WRN("SO_BROADCAST not available on this socket (%d) - continuing, "
+            "broadcast sendto() should still work", errno);
+  }
 
   // CAN BUS STARTUPS
   if (!device_is_ready(can_dev_0)) {
@@ -75,6 +86,39 @@ int udp_transport_init(struct UDPTransport *udp_transport) {
                   udp_transport, NULL, NULL, UDP_TRANSPORT_THREAD_PRIORITY, 0,
                   K_NO_WAIT);
 
+  k_msgq_init(&udp_transport->can_rx_msgq,
+              (char *)udp_transport->can_rx_msgq_buffer,
+              sizeof(struct can_frame), CAN_SNIFF_MSGQ_DEPTH);
+
+  const struct can_filter std_filter = {
+      .id = 0,
+      .mask = 0,
+      .flags = 0,
+  };
+
+  const struct can_filter ext_filter = {
+      .id = 0,
+      .mask = 0,
+      .flags = CAN_FILTER_IDE,
+  };
+
+  ret = can_add_rx_filter_msgq(can_dev_0, &udp_transport->can_rx_msgq,
+                                &std_filter);
+  if (ret < 0) {
+    LOG_ERR("Failed to add CAN std-id sniff filter: %d", ret);
+  }
+
+  ret = can_add_rx_filter_msgq(can_dev_0, &udp_transport->can_rx_msgq,
+                                &ext_filter);
+  if (ret < 0) {
+    LOG_ERR("Failed to add CAN ext-id sniff filter: %d", ret);
+  }
+
+  k_thread_create(&can_sniff_thread_data, can_sniff_stack,
+                  K_THREAD_STACK_SIZEOF(can_sniff_stack), can_sniff_thread,
+                  udp_transport, NULL, NULL, CAN_SNIFF_THREAD_PRIORITY, 0,
+                  K_NO_WAIT);
+
   LOG_INF("Socket ready...");
 
   return 0;
@@ -82,53 +126,51 @@ int udp_transport_init(struct UDPTransport *udp_transport) {
 
 int udp_parse_frame(uint8_t *rx_buf, int len, struct can_frame *can_frame) {
 
-  if (len < 0) {
-    LOG_ERR("There must be bytes in the UDP Frame...");
+  if (len != (int)CANUDP_FRAME_SIZE) {
+    LOG_ERR("Unexpected packet size %d (expected %d)", len,
+            (int)CANUDP_FRAME_SIZE);
     return -1;
   }
 
-  /*
-   * BYTE 0: Protocol Version
-   * BYTE 1: Flags
-   * BYTE 2-7: TODO: im sure theres some other tiestamp stuff we want later
-   * BYTE 8-12: CAN ID
-   * BYTE 13: data length
-   * BYTE 14: flags; 0 for classic; fd uses it tho
-   * BYTE 15-16: reserved; TODO: could use as timestamp later
-   * BYTE 17-24: 8byte data output; the meat of things...
-   * */
+  struct canudp_frame w;
+  memcpy(&w, rx_buf, sizeof(w));
 
-  // TODO: extend to FD oneday; for now, we just care about classic...
-  uint8_t protocol_ver = rx_buf[0];
-  uint8_t phy_channel = rx_buf[2];
-  uint16_t can_id = (rx_buf[8] << 8 | rx_buf[9]) & 0b11111111111;
-  uint8_t dlc = rx_buf[13];
-  if (dlc > 8) {
-    dlc = 8;
+  if (w.version != CANUDP_VERSION) {
+    LOG_ERR("Unexpected protocol version %x", w.version);
+    return -1;
+  }
+
+  uint32_t can_id = canudp_unpack_id(w.can_id);
+  uint8_t can_flags = 0;
+
+  if (w.flags & CANUDP_FLAG_EFF) {
+    can_id &= CAN_EXT_ID_MASK;
+    can_flags |= CAN_FRAME_IDE;
+  } else {
+    can_id &= CAN_STD_ID_MASK;
+  }
+  if (w.flags & CANUDP_FLAG_RTR) {
+    can_flags |= CAN_FRAME_RTR;
+  }
+
+  uint8_t dlc = w.len;
+  if (dlc > CANUDP_DATA_LEN) {
+    dlc = CANUDP_DATA_LEN;
     LOG_WRN("Cannot exceed 8 DLC - only sending 8 bytes and setting DLC to 8");
   }
-  uint8_t data[8] = {0};
-  memcpy(&data, &rx_buf[9], dlc > 8 ? 8 : dlc);
 
-  can_frame->dlc = dlc;
+  // TODO: extend to FD oneday; for now, we just care about classic, so
+  // w.fd_flags is ignored here.
+  memset(can_frame, 0, sizeof(*can_frame));
   can_frame->id = can_id;
-  can_frame->flags = 0;
-  memcpy(can_frame->data, data, 8);
+  can_frame->dlc = dlc;
+  can_frame->flags = can_flags;
+  memcpy(can_frame->data, w.data, dlc);
 
-  LOG_INF("Protocol Version %x", protocol_ver);
-  LOG_INF("Physical CAN Channel %x", phy_channel);
-  LOG_INF("Target CANID %3x", can_id);
+  LOG_INF("Protocol Version %x", w.version);
+  LOG_INF("Target CANID %x", can_id);
   LOG_INF("Target DLC %x", dlc);
-  LOG_HEXDUMP_INF(data, 8, "CAN Data");
-
-  // TODO: fix this; its a nice work around for now; but want something
-  // a bit easier to audit in the future
-  if (phy_channel != 0) {
-    // TODO: also dont like the idea of not 0 => 1
-    return 1;
-  } else {
-    return 0;
-  }
+  LOG_HEXDUMP_INF(can_frame->data, 8, "CAN Data");
 
   return 0;
 }
@@ -141,19 +183,21 @@ void udp_rx_thread(void *p1, void *p2, void *p3) {
   // p1 is a udp_transport type; we get sock from there
   struct UDPTransport *udp_transport = (struct UDPTransport *)p1;
 
-  LOG_INF("UDP RX Thread started, listenign on port %d", UDP_PORT);
+  LOG_INF("UDP RX Thread started, listening on port %d", UDP_PORT);
 
   for (;;) {
     uint8_t rx_buf[UDP_PACKET_SIZE] = {0};
     struct can_frame frame = {0};
+
     int pkt_size =
         zsock_recv(udp_transport->udp_sock, rx_buf, UDP_PACKET_SIZE, 0);
     if (pkt_size < 0) {
       LOG_ERR("Packet was a dud...");
+      continue;
     }
 
-    int phy_channel = udp_parse_frame(rx_buf, pkt_size, &frame);
-    if (phy_channel < 0) {
+    int parse_ret = udp_parse_frame(rx_buf, pkt_size, &frame);
+    if (parse_ret < 0) {
       LOG_ERR("Failed to parse frame...");
       continue;
     }
@@ -170,6 +214,61 @@ void udp_rx_thread(void *p1, void *p2, void *p3) {
         LOG_ERR("can state: %d, tx_err_cnt: %d, rx_err_cnt: %d", state,
                 err_cnt.tx_err_cnt, err_cnt.rx_err_cnt);
       }
+    }
+  }
+}
+
+void can_sniff_thread(void *p1, void *p2, void *p3) {
+  ARG_UNUSED(p2);
+  ARG_UNUSED(p3);
+
+  struct UDPTransport *udp_transport = (struct UDPTransport *)p1;
+  struct can_frame frame;
+
+  struct sockaddr_in bcast_addr = {
+      .sin_family = AF_INET,
+      .sin_port = htons(UDP_PORT),
+      .sin_addr.s_addr = htonl(INADDR_BROADCAST),
+  };
+
+  LOG_INF("CAN sniff thread started, broadcasting on port %d", UDP_PORT);
+
+  for (;;) {
+    k_msgq_get(&udp_transport->can_rx_msgq, &frame, K_FOREVER);
+
+    struct canudp_frame w;
+    memset(&w, 0, sizeof(w));
+    w.version = CANUDP_VERSION;
+
+    uint32_t id = frame.id;
+    if (frame.flags & CAN_FRAME_IDE) {
+      w.flags |= CANUDP_FLAG_EFF;
+      id &= CAN_EXT_ID_MASK;
+    } else {
+      id &= CAN_STD_ID_MASK;
+    }
+    if (frame.flags & CAN_FRAME_RTR) {
+      w.flags |= CANUDP_FLAG_RTR;
+    }
+    canudp_pack_id(w.can_id, id);
+
+    // NOTE: classic CAN only for now - frame.dlc is already a byte
+    // count (0-8) here. If FD support is added later this needs
+    // can_dlc_to_bytes(frame.dlc), and w.fd_flags would need setting.
+    uint8_t data_len = frame.dlc;
+    if (data_len > CANUDP_DATA_LEN) {
+      data_len = CANUDP_DATA_LEN;
+    }
+    w.len = data_len;
+    w.fd_flags = 0;
+    memcpy(w.data, frame.data, data_len);
+
+    // this is a bare struct canudp_frame on the wire - same 25-byte
+    // format canudp_daemon already speaks, no extra header
+    int ret = zsock_sendto(udp_transport->udp_sock, &w, sizeof(w), 0,
+                           (struct sockaddr *)&bcast_addr, sizeof(bcast_addr));
+    if (ret < 0) {
+      LOG_WRN("Failed to broadcast sniffed CAN frame: %d", errno);
     }
   }
 }

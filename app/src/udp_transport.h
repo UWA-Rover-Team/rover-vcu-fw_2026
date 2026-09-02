@@ -1,13 +1,18 @@
 #pragma once
 #include "app_types.h"
+#include "canudp_proto.h"
 #include <zephyr/drivers/can.h>
 #include <zephyr/kernel.h>
 #include <zephyr/net/socket.h>
 
-#define UDP_PORT 5555
+#define UDP_PORT 5559
 #define UDP_PACKET_SIZE 1024
 #define UDP_THREAD_STACK_SIZE 2048
 #define UDP_TRANSPORT_THREAD_PRIORITY 5
+
+#define CAN_SNIFF_MSGQ_DEPTH 64
+#define CAN_SNIFF_STACK_SIZE 2048
+#define CAN_SNIFF_THREAD_PRIORITY 5
 
 struct UDPPacketHeader {
   uint8_t type;
@@ -38,6 +43,9 @@ struct UDPTransport {
   struct k_msgq tx_msgq;
   struct UDPReceivedPacket *rx_msgq_buffer[100];
   struct UDPTransmittedPacket *tx_msgq_buffer[100];
+
+  struct k_msgq can_rx_msgq;
+  struct can_frame can_rx_msgq_buffer[CAN_SNIFF_MSGQ_DEPTH];
 };
 
 struct UDPReceivedPacket {
@@ -70,3 +78,4 @@ void udp_rx_thread(void *p1, void *p2, void *p3);
 struct UDPReceivedPacket
 udp_transport_rx_parse(struct UDPTransport *udp_transport, uint8_t *buf,
                        ssize_t len);
+void can_sniff_thread(void *p1, void *p2, void *p3);
