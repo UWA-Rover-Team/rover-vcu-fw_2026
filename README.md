@@ -70,6 +70,43 @@ cangen vcan0 -f
 cansend vcan0 123#DEADBEEF
 ```
 
+## CAN-over-UDP Wire Protocol
+The board and `canudp_daemon` (the host-side driver shim that exposes a
+virtual SocketCAN interface to `can-utils`) exchange raw CAN traffic as
+fixed-size UDP datagrams on `CONFIG_GATEWAY_UDP_PORT` (`5555` by default).
+There is no handshake: each direction is just unicast/broadcast
+`sendto()`/`recv()` of the struct below, defined identically in
+`app/src/canudp_proto.h` and `tools/canudp/canudp_proto.h` (keep both
+copies byte-for-byte in sync).
+
+- **Device -> host**: every CAN frame received on the board's CAN bus is
+  broadcast to `CONFIG_GATEWAY_UDP_PORT` (see `can_sniff_thread()` in
+  `app/src/udp_transport.c`), which `canudp_daemon` picks up and replays
+  onto the local `vcan` interface for `candump`/etc.
+- **Host -> device**: frames sent to the device's UDP port (e.g. via
+  `cansend` on the `vcan` interface, relayed by `canudp_daemon`) are
+  parsed and injected onto the board's CAN bus (see `udp_rx_thread()` /
+  `udp_parse_frame()` in `app/src/udp_transport.c`).
+
+A datagram is valid only if it is exactly `CANUDP_FRAME_SIZE` (25) bytes
+long and its version byte matches `CANUDP_VERSION`; anything else is
+dropped. There is no magic number - length + version are the only
+validity checks.
+
+| Bytes | Field       | Notes |
+|-------|-------------|-------|
+| 0     | `version`   | Must equal `CANUDP_VERSION` (currently `1`). |
+| 1     | `flags`     | Bitmask: `0x01` EFF (29-bit extended ID), `0x02` RTR, `0x04` ERR (reserved, unused). |
+| 2-7   | `reserved0` | Zero; reserved for a future timestamp. |
+| 8-12  | `can_id`    | 5-byte big-endian CAN ID. Byte 8 is currently unused/reserved; the ID itself lives in bytes 9-12. |
+| 13    | `len`       | Data length, `0`-`8`. |
+| 14    | `fd_flags`  | `0` = classic CAN frame. Non-zero = CAN FD: `0x01` FDF, `0x02` BRS, `0x04` ESI. |
+| 15-16 | `reserved1` | Zero; reserved for a future timestamp. |
+| 17-24 | `data`      | 8 bytes of CAN payload. Even for FD frames only the first 8 data bytes are carried (no support yet for 12/16/.../64-byte FD payload lengths). |
+
+> [!NOTE]
+> The device has only been tested with standard CAN. Let me know if you try CAN FD or other configurations.
+
 ## Firmware Update with MCU Boot
 The firmware is built with [MCUboot](https://docs.mcuboot.com/) as the bootloader
 (via Zephyr sysbuild, see `app/sysbuild.conf`), and uses MCUmgr's UDP transport
