@@ -60,3 +60,104 @@ cangen vcan0 -f
 # send a single frame manually
 cansend vcan0 123#DEADBEEF
 ```
+
+## Firmware Update with MCU Boot
+The firmware is built with [MCUboot](https://docs.mcuboot.com/) as the bootloader
+(via Zephyr sysbuild, see `app/sysbuild.conf`), and uses MCUmgr's UDP transport
+for over-the-network DFU. A build produces a signed image at
+`build/app/zephyr/zephyr.signed.bin` which can be uploaded to a device already
+running MCUboot without a debug probe.
+
+### Prerequesite Installs
+`mcumgr` is distributed as a Go module, so you'll need a Go toolchain installed
+first.
+
+```sh
+# Debian/Ubuntu
+sudo apt update
+sudo apt install golang-go
+
+# macOS
+brew install go
+```
+
+Verify the install and check `GOPATH` (where `go install` places binaries):
+
+```sh
+go version
+go env GOPATH
+```
+
+Add `$GOPATH/bin` (typically `~/go/bin`) to your `PATH` if it isn't already,
+e.g. by adding this to your `~/.bashrc`, `~/.zshrc`, etc:
+
+```sh
+export PATH="$PATH:$(go env GOPATH)/bin"
+```
+
+Now install the `mcumgr` CLI tool (used to upload images and manage the
+bootloader over UDP):
+
+```sh
+go install github.com/apache/mynewt-mcumgr-cli/mcumgr@latest
+```
+
+Confirm it's on your `PATH`:
+
+```sh
+mcumgr version
+```
+
+### Uploading a `.bin` Image
+The device listens for MCUmgr SMP requests on UDP port `1337`
+(`CONFIG_MCUMGR_TRANSPORT_UDP_PORT` in `app/prj.conf`). Replace `<DEVICE_IP>`
+with the device's IP address.
+
+```sh
+# upload the signed image to the device's inactive slot
+mcumgr --conntype udp --connstring "[<DEVICE_IP>]:1337" image upload build/app/zephyr/zephyr.signed.bin
+
+# confirm the new image landed in slot 1 and note its hash
+mcumgr --conntype udp --connstring "[<DEVICE_IP>]:1337" image list
+
+# mark the new image for a one-time test boot
+mcumgr --conntype udp --connstring "[<DEVICE_IP>]:1337" image test <IMAGE_HASH>
+
+# reboot the device into the new image
+mcumgr --conntype udp --connstring "[<DEVICE_IP>]:1337" reset
+```
+
+After confirming the new firmware boots and runs correctly, permanently confirm
+it (otherwise MCUboot will revert to the previous image on the next reboot):
+
+```sh
+mcumgr --conntype udp --connstring "[<DEVICE_IP>]:1337" image confirm <IMAGE_HASH>
+```
+
+## `telnet` for debugging
+Debug builds expose a Zephyr shell over telnet instead of (or in addition to)
+the serial console, which is useful when the device is only reachable over
+the network. This is controlled by `app/debug.conf`
+(`CONFIG_SHELL_BACKEND_TELNET=y`), which is not enabled in a normal release
+build.
+
+### Building with the shell enabled
+Add `debug.conf` as an extra Kconfig fragment when configuring the build:
+
+```sh
+west build -b rover_vcu_v0 -p always --sysbuild app -- -DEXTRA_CONF_FILE=debug.conf
+```
+
+### Connecting
+The telnet shell listens on TCP port `23` by default
+(`CONFIG_SHELL_BACKEND_TELNET_PORT`). Connect with `telnet` once the device
+has an IP address (check your DHCP leases, or see `CONFIG_STATIC_VCU_DEV` in
+`app/debug.conf` for a static-IP debug config):
+
+```sh
+telnet <DEVICE_IP>
+```
+
+Once connected you get an interactive Zephyr shell (`kernel`, `log`, `net`,
+etc. subcommands, plus any app-specific shell commands). Only one telnet
+client can be attached at a time. 
