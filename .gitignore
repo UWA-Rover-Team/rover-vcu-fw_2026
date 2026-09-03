@@ -18,3 +18,5 @@ __pycache__/
 .cache/
 .DS_Store
 *.pem
+
+canudp_daemon
