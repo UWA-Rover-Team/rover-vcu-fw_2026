@@ -184,7 +184,7 @@ void udp_rx_thread(void *p1, void *p2, void *p3) {
   // p1 is a udp_transport type; we get sock from there
   struct UDPTransport *udp_transport = (struct UDPTransport *)p1;
 
-  LOG_INF("UDP RX Thread started, listening on port %d",
+  LOG_WRN("UDP RX Thread started, listening on port %d",
           CONFIG_GATEWAY_UDP_PORT);
 
   for (;;) {
@@ -233,7 +233,7 @@ void can_sniff_thread(void *p1, void *p2, void *p3) {
       .sin_addr.s_addr = htonl(INADDR_BROADCAST),
   };
 
-  LOG_INF("CAN sniff thread started, broadcasting on port %d",
+  LOG_WRN("CAN sniff thread started, broadcasting on port %d",
           CONFIG_GATEWAY_UDP_PORT);
 
   for (;;) {
