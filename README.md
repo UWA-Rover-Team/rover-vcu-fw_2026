@@ -6,6 +6,7 @@ This project acts as the CAN to UDP gateway to enable control of the rovers CAN 
 ```
 sudo apt update
 sudo apt install can-utils
+sudo apt install build-essential
 ```
 
 ### `systemctl` Configuration
@@ -46,7 +47,15 @@ User=root
 WantedBy=multi-user.target
 ```
 
+Reload `systemd` and run the service.
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now canudp.service
+```
+
 ### Running `can-utils` tools with `vcan0`
+
 ```bash
 # generate random CAN traffic on vcan0
 cangen vcan0
