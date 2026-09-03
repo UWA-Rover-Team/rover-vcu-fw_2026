@@ -83,6 +83,14 @@ jobs:
           # embedded firmware version.
           push: false
 
+      # commitizen-action runs as a Docker container action (root), which
+      # leaves .git internals owned by root and breaks later git commands
+      # (e.g. "could not open .git/COMMIT_EDITMSG: Permission denied") run
+      # as the regular runner user.
+      - name: Fix workspace ownership after Commitizen container action
+        if: steps.cz.outputs.version != ''
+        run: sudo chown -R "$(id -u):$(id -g)" .
+
       # app/VERSION drives Zephyr's own build-time version (see
       # zephyr/cmake/modules/version.cmake), which is independent of the
       # Commitizen version tracked in .cz.toml. Commitizen's version_files
