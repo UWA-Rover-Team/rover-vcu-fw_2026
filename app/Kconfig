@@ -24,6 +24,12 @@ config STATIC_VCU_DEV
         replace dynamic configuration with static values. 
         enable in debug.conf
 
+config GATEWAY_UDP_PORT
+    int "can-util rx and tx port"
+    default 5555
+    help
+        sets the port the linux driver uses
+
 module = APP
 module-str = APP
 source "subsys/logging/Kconfig.template.log_config"

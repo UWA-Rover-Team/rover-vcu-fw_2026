@@ -5,7 +5,6 @@
 #include <zephyr/kernel.h>
 #include <zephyr/net/socket.h>
 
-#define UDP_PORT 5559
 #define UDP_PACKET_SIZE 1024
 #define UDP_THREAD_STACK_SIZE 2048
 #define UDP_TRANSPORT_THREAD_PRIORITY 5

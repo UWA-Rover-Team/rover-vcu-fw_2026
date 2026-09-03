@@ -26,7 +26,7 @@ int udp_transport_init(struct UDPTransport *udp_transport) {
 
   memset(&bind_addr, 0, sizeof(bind_addr));
   bind_addr.sin_family = AF_INET;
-  bind_addr.sin_port = htons(UDP_PORT);
+  bind_addr.sin_port = htons(CONFIG_GATEWAY_UDP_PORT);
   bind_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
   ret = zsock_bind(udp_transport->udp_sock, (struct sockaddr *)&bind_addr,
@@ -45,7 +45,8 @@ int udp_transport_init(struct UDPTransport *udp_transport) {
                          &broadcast_enable, sizeof(broadcast_enable));
   if (ret < 0) {
     LOG_WRN("SO_BROADCAST not available on this socket (%d) - continuing, "
-            "broadcast sendto() should still work", errno);
+            "broadcast sendto() should still work",
+            errno);
   }
 
   // CAN BUS STARTUPS
@@ -103,13 +104,13 @@ int udp_transport_init(struct UDPTransport *udp_transport) {
   };
 
   ret = can_add_rx_filter_msgq(can_dev_0, &udp_transport->can_rx_msgq,
-                                &std_filter);
+                               &std_filter);
   if (ret < 0) {
     LOG_ERR("Failed to add CAN std-id sniff filter: %d", ret);
   }
 
   ret = can_add_rx_filter_msgq(can_dev_0, &udp_transport->can_rx_msgq,
-                                &ext_filter);
+                               &ext_filter);
   if (ret < 0) {
     LOG_ERR("Failed to add CAN ext-id sniff filter: %d", ret);
   }
@@ -183,7 +184,8 @@ void udp_rx_thread(void *p1, void *p2, void *p3) {
   // p1 is a udp_transport type; we get sock from there
   struct UDPTransport *udp_transport = (struct UDPTransport *)p1;
 
-  LOG_INF("UDP RX Thread started, listening on port %d", UDP_PORT);
+  LOG_INF("UDP RX Thread started, listening on port %d",
+          CONFIG_GATEWAY_UDP_PORT);
 
   for (;;) {
     uint8_t rx_buf[UDP_PACKET_SIZE] = {0};
@@ -227,11 +229,12 @@ void can_sniff_thread(void *p1, void *p2, void *p3) {
 
   struct sockaddr_in bcast_addr = {
       .sin_family = AF_INET,
-      .sin_port = htons(UDP_PORT),
+      .sin_port = htons(CONFIG_GATEWAY_UDP_PORT),
       .sin_addr.s_addr = htonl(INADDR_BROADCAST),
   };
 
-  LOG_INF("CAN sniff thread started, broadcasting on port %d", UDP_PORT);
+  LOG_INF("CAN sniff thread started, broadcasting on port %d",
+          CONFIG_GATEWAY_UDP_PORT);
 
   for (;;) {
     k_msgq_get(&udp_transport->can_rx_msgq, &frame, K_FOREVER);
