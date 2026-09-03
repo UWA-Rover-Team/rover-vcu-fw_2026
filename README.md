@@ -161,3 +161,24 @@ telnet <DEVICE_IP>
 Once connected you get an interactive Zephyr shell (`kernel`, `log`, `net`,
 etc. subcommands, plus any app-specific shell commands). Only one telnet
 client can be attached at a time. 
+
+## Editing Firmware
+This project uses zephyr. You'll need to clone down the repo using west. 
+Follow the zephyr install instructions then run the following commands to initialize the west workspace:
+
+```bash
+west init -m <REPO_URL> --mr main <WORKSPACE_DIR>
+cd <WORKSPACE_DIR>
+west update
+``` 
+
+This may take a few minutes depending on your internet connection and the size of the repository.
+
+To build and flash the firmware, run the following commands:
+
+```bash
+cd <WORKSPACE_DIR>
+cd rover-vcu-fw_2026
+west build -b rover_vcu_v0 -p always --sysbuild app -- -DEXTRA_CONF_FILE=debug.conf
+west flash
+```
