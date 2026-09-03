@@ -28,7 +28,7 @@ This will default to `192.168.8.158` if no DHCP server is present. Once you've e
 it, copy the file to `/etc/systemd/system/canudp.service`. You may need `sudo`
 privliges. 
 
-```toml
+```ini
 [Unit]
 Description=CAN-over-UDP bridge daemon (vcan0)
 After=network-online.target
