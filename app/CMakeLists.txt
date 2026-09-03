@@ -11,7 +11,8 @@ project(app LANGUAGES C)
 
 target_sources(app PRIVATE 
     src/main.c
-    src/fsm.c
+    src/dhcp_req.c
+    src/udp_transport.c
 )
 
 # The code below locates the git index file for this repository and adds it as a dependency for

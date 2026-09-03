@@ -1,0 +1,6 @@
+board:
+  name: rover_vcu_v0
+  full_name: Rover VCU v0
+  vendor: chenry
+  socs:
+    - name: stm32h563xx

@@ -18,6 +18,7 @@ enum FSMStates {
 };
 
 enum FSMTransitions {
+  TRAN_EVT_NONE,
   TRAN_EVT_ENABLE,
   TRAN_EVT_BOOTED,
   TRAN_EVT_RUN,
@@ -27,7 +28,8 @@ enum FSMTransitions {
   TRAN_EVT_SUSPEND,
   TRAN_EVT_UNSUSPEND,
   TRAN_EVT_ESTOP,
-  TRAN_EVT_FAULT_CLEAR
+  TRAN_EVT_FAULT_CLEAR,
+  TRAN_EVT_ABORT,
 };
 
 // Input Ports

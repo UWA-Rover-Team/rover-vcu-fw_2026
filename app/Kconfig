@@ -10,6 +10,26 @@ menu "Zephyr"
 source "Kconfig.zephyr"
 endmenu
 
+config VCU_PORTS_MOCK
+    bool "Use mock port implementations for testing and debug"
+    default n
+    help
+        replace real driver-backed port read/write with static mock data. 
+        enable in debug.conf
+
+config STATIC_VCU_DEV
+    bool "Make network static for testing and debug"
+    default n
+    help
+        replace dynamic configuration with static values. 
+        enable in debug.conf
+
+config GATEWAY_UDP_PORT
+    int "can-util rx and tx port"
+    default 5555
+    help
+        sets the port the linux driver uses
+
 module = APP
 module-str = APP
 source "subsys/logging/Kconfig.template.log_config"

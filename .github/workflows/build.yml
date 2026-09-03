@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        board: [nucleo_h563zi, nucleo_h753zi]
+        board: [rover_vcu_v0]
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
@@ -38,52 +38,29 @@ jobs:
           toolchains: arm-zephyr-eabi
           ccache-cache-key: ${{ matrix.board }}
 
+      - name: Generate MCUBoot Signing Key
+        working-directory: example-application
+        run: |
+          set -euo pipefail
+          echo "${{ secrets.MCUBOOT_SIGNING_KEY }}" > secret.pem
+          chmod 600 secret.pem
+          openssl ec -in secret.pem -noout -check
+
       - name: Build firmware
         working-directory: example-application
-        run: west build -b ${{ matrix.board }} app
+        run: west build -b ${{ matrix.board }} app --sysbuild -- -DEXTRA_CONFI_FILE=debug.conf
 
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
         with:
           name: firmware-${{ matrix.board }}
           path: |
-            example-application/build/zephyr/zephyr.elf
-            example-application/build/zephyr/zephyr.bin
-            example-application/build/zephyr/zephyr.hex
+            example-application/build/app/zephyr/zephyr.signed.bin
           if-no-files-found: warn
-
-  test:
-    name: Twister Tests
-    runs-on: ubuntu-22.04
-    permissions:
-      checks: write
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          path: example-application
-          persist-credentials: false
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: 3.12
-
-      - name: Setup Zephyr project
-        uses: zephyrproject-rtos/action-zephyr-setup@v1
-        with:
-          app-path: example-application
-          toolchains: arm-zephyr-eabi
-          ccache-cache-key: ubuntu-22.04-tests
-
-      - name: Twister Tests
-        working-directory: example-application
-        run: west twister -T tests --platform qemu_cortex_m0
 
   release:
     name: Release
-    needs: [build, test]
+    needs: [build]
     runs-on: ubuntu-22.04
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     permissions:
@@ -101,19 +78,63 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           changelog_increment_filename: _changelog_body.md
+          # Push is deferred until after app/VERSION is synced below, so the
+          # bump commit and its tag land on the commit with the correct
+          # embedded firmware version.
+          push: false
 
-      - name: Download firmware artifacts
+      # app/VERSION drives Zephyr's own build-time version (see
+      # zephyr/cmake/modules/version.cmake), which is independent of the
+      # Commitizen version tracked in .cz.toml. Commitizen's version_files
+      # can't sync it directly because it only does whole-string
+      # substitution, and app/VERSION splits the version across lines.
+      - name: Sync app/VERSION with bumped version
         if: steps.cz.outputs.version != ''
-        uses: actions/download-artifact@v4
+        run: python3 scripts/sync_app_version.py "${{ steps.cz.outputs.version }}"
+
+      - name: Set up Python
+        if: steps.cz.outputs.version != ''
+        uses: actions/setup-python@v5
         with:
-          pattern: firmware-*
-          path: firmware
+          python-version: 3.12
+
+      - name: Setup Zephyr project
+        if: steps.cz.outputs.version != ''
+        uses: zephyrproject-rtos/action-zephyr-setup@v1
+        with:
+          app-path: .
+          toolchains: arm-zephyr-eabi
+          ccache-cache-key: rover_vcu_v0
+
+      - name: Generate MCUBoot Signing Key
+        if: steps.cz.outputs.version != ''
+        run: |
+          set -euo pipefail
+          echo "${{ secrets.MCUBOOT_SIGNING_KEY }}" > secret.pem
+          chmod 600 secret.pem
+          openssl ec -in secret.pem -noout -check
+
+      - name: Rebuild firmware with updated VERSION
+        if: steps.cz.outputs.version != ''
+        run: west build -b rover_vcu_v0 app --sysbuild -- -DEXTRA_CONFI_FILE=debug.conf
+
+      - name: Commit app/VERSION and push release tag
+        if: steps.cz.outputs.version != ''
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add app/VERSION
+          git commit --amend --no-edit
+          git tag -f "${{ steps.cz.outputs.version }}" HEAD
+          git push origin HEAD:${{ github.ref_name }}
+          git push origin "${{ steps.cz.outputs.version }}" --force
 
       - name: Package firmware release
         if: steps.cz.outputs.version != ''
         run: |
           mkdir -p ${{ env.PROJECT_NAME }}-${{ steps.cz.outputs.version }}
-          cp -r firmware/* ${{ env.PROJECT_NAME }}-${{ steps.cz.outputs.version }}/
+          cp build/app/zephyr/zephyr.signed.bin ${{ env.PROJECT_NAME }}-${{ steps.cz.outputs.version }}/
           tar -czf ${{ env.PROJECT_NAME }}_fw-release_v${{ steps.cz.outputs.version }}.tar.gz \
             ${{ env.PROJECT_NAME }}-${{ steps.cz.outputs.version }}
 

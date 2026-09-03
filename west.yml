@@ -12,7 +12,7 @@ manifest:
   projects:
     - name: zephyr
       remote: zephyrproject-rtos
-      revision: main
+      revision: v4.4.0
       import:
         # By using name-allowlist we can clone only the modules that are
         # strictly needed by the application.
@@ -20,3 +20,5 @@ manifest:
           - cmsis_6    # required by the ARM port for Cortex-M
           - hal_nordic # required by the custom_plank board (Nordic based)
           - hal_stm32  # required by the nucleo_f302r8 board (STM32 based)
+          - mcuboot
+          - zcbor      # required by MCUmgr (CBOR encoding) and mcuboot

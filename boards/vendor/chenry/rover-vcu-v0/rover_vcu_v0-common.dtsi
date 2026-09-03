@@ -1,0 +1,210 @@
+#include <st/h5/stm32h563Xi.dtsi>
+#include <st/h5/stm32h563ritx-pinctrl.dtsi>
+#include <zephyr/dt-bindings/input/input-event-codes.h>
+
+/ {
+	leds: leds {
+		compatible = "gpio-leds";
+
+		led0: led_0 {
+			gpios = <&gpiob 13 GPIO_ACTIVE_HIGH>;
+			label = "User LD0";
+		};
+
+		led1: led_1 {
+			gpios = <&gpiob 14 GPIO_ACTIVE_HIGH>;
+			label = "User LD1";
+		};
+
+		led2: led_2 {
+			gpios = <&gpioc 6 GPIO_ACTIVE_HIGH>;
+			label = "User LD2";
+		};
+
+	};
+
+	gpio_keys {
+		compatible = "gpio-keys";
+
+		estop_btn: estop {
+			label = "ESTOP";
+			gpios = <&gpioa 0 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+			zephyr,code = <INPUT_KEY_0>;
+		};
+	};
+
+    chosen {
+        zephyr,system-timer = &lptim4;
+    };
+
+};
+
+&clk_hsi {
+	status = "disabled";
+};
+
+&clk_hse {
+	clock-frequency = <DT_FREQ_M(8)>;
+	status = "okay";
+};
+
+&clk_hsi48 {
+	status = "okay";
+};
+
+&clk_lse {
+	status = "okay";
+};
+
+&pll {
+	div-m = <2>; /* 8MHz HSE / 2 = 4MHz PLL input */
+	mul-n = <120>; /* 4MHz * 120 = 480MHz VCO */
+	div-p = <2>; /* 480MHz / 2 = 240MHz SYSCLK */
+	div-q = <4>;
+	div-r = <2>;
+	clocks = <&clk_hse>;
+	status = "okay";
+};
+
+&pll2 {
+	div-m = <2>;
+	mul-n = <120>;
+	div-p = <2>;
+	div-q = <3>;
+	div-r = <2>;
+	clocks = <&clk_hse>;
+	status = "okay";
+};
+
+
+
+&rcc {
+	clocks = <&pll>;
+	clock-frequency = <DT_FREQ_M(240)>;
+	ahb-prescaler = <1>;
+	apb1-prescaler = <2>;
+	apb2-prescaler = <1>;
+	apb3-prescaler = <2>;
+};
+
+&uart7 {
+	pinctrl-0 = <&uart7_tx_pb4 &uart7_rx_pb3>;
+	pinctrl-names = "default";
+	current-speed = <115200>;
+	status = "okay";
+};
+
+&fdcan1 {
+	pinctrl-0 = <&fdcan1_tx_pb7 &fdcan1_rx_pb8>;
+	pinctrl-names = "default";
+	clocks = <&rcc STM32_CLOCK(APB1_2, 9)>,
+		 <&rcc STM32_SRC_HSE FDCAN_SEL(0)>;
+	status = "okay";
+};
+
+&fdcan2 {
+	pinctrl-0 = <&fdcan2_rx_pb5 &fdcan2_tx_pb6>;
+	pinctrl-names = "default";
+	clocks = <&rcc STM32_CLOCK(APB1_2, 9)>,
+		 <&rcc STM32_SRC_HSE FDCAN_SEL(0)>;
+	status = "okay";
+};
+
+&mac {
+	status = "okay";
+	pinctrl-0 = <&eth_ref_clk_pa1
+		     &eth_crs_dv_pa7
+		     &eth_rxd0_pc4
+		     &eth_rxd1_pc5
+		     &eth_tx_en_pa5
+		     &eth_txd0_pb12
+		     &eth_txd1_pb15>;
+	pinctrl-names = "default";
+	phy-connection-type = "rmii";
+	phy-handle = <&eth_phy>;
+};
+
+&mdio {
+	status = "okay";
+	pinctrl-0 = <&eth_mdio_pa2 &eth_mdc_pc1>;
+	pinctrl-names = "default";
+
+	eth_phy: ethernet-phy@0 {
+		compatible = "ethernet-phy";
+		reg = <0x00>;
+	};
+};
+
+&rtc {
+	clocks = <&rcc STM32_CLOCK(APB3, 21)>,
+		 <&rcc STM32_SRC_LSE RTC_SEL(1)>;
+	status = "okay";
+};
+
+&iwdg {
+	status = "okay";
+};
+
+&gpdma1 {
+	status = "okay";
+};
+
+&gpdma2 {
+	status = "okay";
+};
+
+
+
+
+
+&flash0 {
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		boot_partition: partition@0 {
+			label = "mcuboot";
+			reg = <0x00000000 DT_SIZE_K(64)>;
+		};
+
+		slot0_partition: partition@10000 {
+			label = "image-0";
+			reg = <0x00010000 DT_SIZE_K(960)>;
+		};
+
+		slot1_partition: partition@100000 {
+			label = "image-1";
+			reg = <0x00100000 DT_SIZE_K(960)>;
+		};
+
+		storage_partition: partition@1f0000 {
+			label = "storage";
+			reg = <0x001f0000 DT_SIZE_K(64)>;
+		};
+	};
+};
+
+zephyr_udc0: &usb {
+	pinctrl-0 = <&usb_dm_pa11 &usb_dp_pa12>;
+	pinctrl-names = "default";
+	status = "okay";
+};
+
+&vref {
+	status = "okay";
+};
+
+&vbat {
+	status = "okay";
+};
+
+&clk_lsi {
+	status = "okay";
+};
+
+&lptim4 {
+	clocks = <&rcc STM32_CLOCK(APB3, 13)>,
+		 <&rcc STM32_SRC_LSI LPTIM4_SEL(4)>;
+	status = "okay";
+};

@@ -77,8 +77,12 @@ ZTEST(fsm, test_fsm_transition_execute) {
   fsm_update_state(&state, TRAN_EVT_STOP);
   zassert_equal(state.ns, FSM_STOPPING, "ns should be FSM_STOPPING");
 
+  state.cs = FSM_EXECUTE; // reset to execute
+
   fsm_update_state(&state, TRAN_EVT_HOLD);
   zassert_equal(state.ns, FSM_HOLDING, "ns should be FSM_HOLDING");
+
+  state.cs = FSM_EXECUTE; // reset to execute
 
   fsm_update_state(&state, TRAN_EVT_SUSPEND);
   zassert_equal(state.ns, FSM_SUSPENDING, "ns should be FSM_SUSPENDING");

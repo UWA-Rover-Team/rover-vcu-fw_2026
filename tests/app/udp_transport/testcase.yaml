@@ -1,0 +1,6 @@
+common:
+  tags: udp_transport
+  integration_platforms:
+    - native_sim
+tests:
+  app.udp_transport: {}

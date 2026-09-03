@@ -1,0 +1,26 @@
+identifier: rover_vcu_v0
+name: Rover VCU v0
+type: mcu
+arch: arm
+toolchain:
+  - zephyr
+ram: 256
+flash: 2048
+supported:
+  - gpio
+  - backup_sram
+  - can
+  - gpio
+  - uart
+  - entropy
+  - adc
+  - dac
+  - pwm
+  - netif:eth
+  - counter
+  - spi
+  - usb_device
+  - rtc
+  - i2c
+  - i3c
+vendor: chenry
